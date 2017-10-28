@@ -1,0 +1,462 @@
+
+####DATABASE CREATION###############
+CREATE DATABASE IF NOT EXISTS cards;
+CREATE DATABASE IF NOT EXISTS retail_ods;
+CREATE DATABASE retail_edw;
+CREATE DATABASE retail_stage;
+
+
+
+-- Create sample database
+-- CREATE DATABASE IF NOT EXISTS cards;
+
+CREATE TABLE deck_of_cards (
+COLOR string,
+SUIT string,
+PIP string)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '|'
+STORED AS TEXTFILE;
+
+--Download deckofcards.txt from github repository www.github.com/dgadiraju/data
+--mkdir -p ~/demo/data/cards
+--copy file deckofcards.txt to ~/demo/data/cards
+LOAD DATA LOCAL INPATH '/home/cloudera/demo/data/cards/deckofcards.txt' INTO TABLE deck_of_cards;
+
+CREATE EXTERNAL TABLE deck_of_cards_external (
+COLOR string,
+SUIT string,
+PIP string)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '|'
+STORED AS TEXTFILE
+LOCATION '/user/hive/warehouse/cards.db/deck_of_cards';
+
+-- Create ods and edw database for retail_db@mysql
+-- CREATE DATABASE IF NOT EXISTS retail_ods;
+-- CREATE DATABASE retail_edw;
+-- CREATE DATABASE retail_stage;
+
+-- Create ods tables (mostly they will follow same structure, except additional audit columns)
+use retail_ods;
+CREATE TABLE categories (
+category_id int,
+category_department_id int,
+category_name string
+)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '|'
+STORED AS TEXTFILE;
+
+CREATE TABLE customers (
+customer_id       int,
+customer_fname    string,
+customer_lname    string,
+customer_email    string,
+customer_password string,
+customer_street   string,
+customer_city     string,
+customer_state    string,
+customer_zipcode  string 
+)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '|'
+STORED AS TEXTFILE;
+
+CREATE TABLE departments (
+department_id int,
+department_name string
+)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '|'
+STORED AS TEXTFILE;
+
+CREATE TABLE orders (
+order_id int,
+order_date string,
+order_customer_id int,
+order_status string
+)
+PARTITIONED BY (order_month string)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '|'
+STORED AS TEXTFILE;
+
+CREATE TABLE order_items (
+order_item_id int,
+order_item_order_id int,
+order_item_order_date string,
+order_item_product_id int,
+order_item_quantity smallint,
+order_item_subtotal float,
+order_item_product_price float
+)
+PARTITIONED BY (order_month string)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '|'
+STORED AS TEXTFILE;
+
+CREATE TABLE orders_bucket (
+order_id int,
+order_date string,
+order_customer_id int,
+order_status string
+)
+CLUSTERED BY (order_id) INTO 16 BUCKETS
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '|'
+STORED AS TEXTFILE;
+
+CREATE TABLE order_items_bucket (
+order_item_id int,
+order_item_order_id int,
+order_item_order_date string,
+order_item_product_id int,
+order_item_quantity smallint,
+order_item_subtotal float,
+order_item_product_price float
+)
+CLUSTERED BY (order_item_order_id) INTO 16 BUCKETS
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '|'
+STORED AS TEXTFILE;
+
+CREATE TABLE products (
+product_id int, 
+product_category_id int,
+product_name string,
+product_description string,
+product_price float,
+product_image string
+)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '|'
+STORED AS TEXTFILE;
+
+-- Create edw tables (following dimension model)
+use retail_edw;
+CREATE TABLE products_dimension (
+product_id int,
+product_name string,
+product_description string,
+product_price float,
+product_category_name string,
+product_department_name string
+)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '|'
+STORED AS TEXTFILE;
+
+CREATE TABLE order_fact (
+order_item_order_id int,
+order_item_order_date string,
+order_item_product_id int,
+order_item_quantity smallint,
+order_item_subtotal float,
+order_item_product_price float
+)
+PARTITIONED BY (product_category_department string)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '|'
+STORED AS TEXTFILE;
+
+-- Create external tables for retail_stage
+use retail_stage;
+
+CREATE EXTERNAL TABLE categories
+ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
+STORED AS INPUTFORMAT 'org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat'
+OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.avro.AvroContainerOutputFormat'
+LOCATION 'hdfs:///user/hive/warehouse/retail_stage.db/categories'
+TBLPROPERTIES ('avro.schema.url'='hdfs://quickstart.cloudera/user/cloudera/retail_stage/sqoop_import_categories.avsc');
+
+CREATE EXTERNAL TABLE customers
+ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
+STORED AS INPUTFORMAT 'org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat'
+OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.avro.AvroContainerOutputFormat'
+LOCATION 'hdfs:///user/hive/warehouse/retail_stage.db/customers'
+TBLPROPERTIES ('avro.schema.url'='hdfs://quickstart.cloudera/user/cloudera/retail_stage/sqoop_import_customers.avsc');
+
+CREATE EXTERNAL TABLE departments
+ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
+STORED AS INPUTFORMAT 'org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat'
+OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.avro.AvroContainerOutputFormat'
+LOCATION 'hdfs:///user/hive/warehouse/retail_stage.db/departments'
+TBLPROPERTIES ('avro.schema.url'='hdfs://quickstart.cloudera/user/cloudera/retail_stage/sqoop_import_departments.avsc');
+
+CREATE EXTERNAL TABLE orders
+ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
+STORED AS INPUTFORMAT 'org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat'
+OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.avro.AvroContainerOutputFormat'
+LOCATION 'hdfs:///user/hive/warehouse/retail_stage.db/orders'
+TBLPROPERTIES ('avro.schema.url'='hdfs://quickstart.cloudera/user/cloudera/retail_stage/sqoop_import_orders.avsc');
+
+CREATE EXTERNAL TABLE order_items
+ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
+STORED AS INPUTFORMAT 'org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat'
+OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.avro.AvroContainerOutputFormat'
+LOCATION 'hdfs:///user/hive/warehouse/retail_stage.db/order_items'
+TBLPROPERTIES ('avro.schema.url'='hdfs://quickstart.cloudera/user/cloudera/retail_stage/sqoop_import_order_items.avsc');
+
+CREATE EXTERNAL TABLE products
+ROW FORMAT SERDE 'org.apache.hadoop.hive.serde2.avro.AvroSerDe'
+STORED AS INPUTFORMAT 'org.apache.hadoop.hive.ql.io.avro.AvroContainerInputFormat'
+OUTPUTFORMAT 'org.apache.hadoop.hive.ql.io.avro.AvroContainerOutputFormat'
+LOCATION 'hdfs:///user/hive/warehouse/retail_stage.db/products'
+TBLPROPERTIES ('avro.schema.url'='hdfs://quickstart.cloudera/user/cloudera/retail_stage/sqoop_import_products.avsc');
+
+-- Latest syntax using stored as avro
+-- Run the sqoop import 
+sqoop import-all-tables \
+  -m 12 \
+  --connect "jdbc:mysql://quickstart.cloudera:3306/retail_db" \
+  --username=retail_dba \
+  --password=cloudera \
+  --as-avrodatafile \
+  --warehouse-dir=/user/hive/warehouse/retail_stage.db
+
+-- It will create directories under warehouse-dir and copy data to that location
+-- The command will also generate avsc files for each of the table with sqoop_import_<table_name>.avsc
+-- Create directory in hdfs /user/cloudera/retail_stage
+-- Copy all avsc files using hadoop fs -put /<path>/*.avsc /user/cloudera/retail_stage
+-- Now you can create table in retail_stage db for all the data you have copied
+
+use retail_stage;
+
+CREATE EXTERNAL TABLE categories
+STORED AS AVRO
+LOCATION 'hdfs:///user/hive/warehouse/retail_stage.db/categories'
+TBLPROPERTIES ('avro.schema.url'='hdfs://quickstart.cloudera/user/cloudera/retail_stage/sqoop_import_categories.avsc');
+
+CREATE EXTERNAL TABLE customers
+STORED AS AVRO
+LOCATION 'hdfs:///user/hive/warehouse/retail_stage.db/customers'
+TBLPROPERTIES ('avro.schema.url'='hdfs://quickstart.cloudera/user/cloudera/retail_stage/sqoop_import_customers.avsc');
+
+CREATE EXTERNAL TABLE departments
+STORED AS AVRO
+LOCATION 'hdfs:///user/hive/warehouse/retail_stage.db/departments'
+TBLPROPERTIES ('avro.schema.url'='hdfs://quickstart.cloudera/user/cloudera/retail_stage/sqoop_import_departments.avsc');
+
+CREATE EXTERNAL TABLE orders
+STORED AS AVRO
+LOCATION 'hdfs:///user/hive/warehouse/retail_stage.db/orders'
+TBLPROPERTIES ('avro.schema.url'='hdfs://quickstart.cloudera/user/cloudera/retail_stage/sqoop_import_orders.avsc');
+
+CREATE EXTERNAL TABLE order_items
+STORED AS AVRO
+LOCATION 'hdfs:///user/hive/warehouse/retail_stage.db/order_items'
+TBLPROPERTIES ('avro.schema.url'='hdfs://quickstart.cloudera/user/cloudera/retail_stage/sqoop_import_order_items.avsc');
+
+CREATE EXTERNAL TABLE products
+STORED AS AVRO
+LOCATION 'hdfs:///user/hive/warehouse/retail_stage.db/products'
+TBLPROPERTIES ('avro.schema.url'='hdfs://quickstart.cloudera/user/cloudera/retail_stage/sqoop_import_products.avsc');
+
+CREATE TABLE orders_part_avro (
+order_id int,
+order_date bigint,
+order_customer_id int,
+order_status string
+)
+PARTITIONED BY (order_month string)
+STORED AS AVRO
+LOCATION 'hdfs:///user/hive/warehouse/retail_stage.db/orders_part_avro'
+TBLPROPERTIES ('avro.schema.url'='hdfs://quickstart.cloudera/user/cloudera/retail_stage/orders_part_avro.avsc');
+
+-- Adding partition manually
+alter table orders_part_avro add partition (order_month='2014-01');
+
+-- Inserting data to a partition
+insert into table orders_part_avro partition (order_month='2014-01')
+select * from orders where from_unixtime(cast(substr(order_date, 1, 10) as int)) like '2014-01%';
+
+-- Drop table and recreate to test dynamic insert
+-- Dynamic insert
+set hive.exec.dynamic.partition.mode=nonstrict;
+insert into table orders_part_avro partition (order_month)
+select order_id, order_date, order_customer_id, order_status,
+substr(from_unixtime(cast(substr(order_date, 1, 10) as int)), 1, 7) order_month from orders;
+
+--validate
+dfs -ls /user/hive/warehouse/retail_stage.db/orders_part_avro/*
+dfs -ls /user/hive/warehouse/retail_stage.db/orders_part_avro/
+
+CREATE TABLE departments_delta (
+department_id int,
+department_name string,
+update_date string
+)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '|'
+STORED AS TEXTFILE;
+
+
+
+#############################
+
+
+########Copy data from MySQL to local file system
+#Enable file_priv to retail_dba
+mysql -u root -p #if password enabled, else "mysql -u root"
+update mysql.user set file_priv = 'Y' where user = 'retail_dba';
+commit;
+exit;
+#On OS prompt, run
+service mysqld restart
+mysql -u retail_dba -p #prompts for password and launches mysql CLI
+use retail_db;
+#Make sure you understand table structure, delimiter, partition etc, run mysql export command
+select * from categories into outfile '/tmp/categories01.psv' fields terminated by '|' lines terminated by '\n';
+select * from customers into outfile '/tmp/customers.psv' fields terminated by '|' lines terminated by '\n';
+select * from departments into outfile '/tmp/departments.psv' fields terminated by '|' lines terminated by '\n';
+select * from products into outfile '/tmp/products.psv' fields terminated by '|' lines terminated by '\n';
+#We cannot use orders and order_items directly as tables in hive database retail_ods are partitioned
+
+########Load data from local file system to hive table
+load data local inpath '/tmp/categories01.psv' overwrite into table categories;
+load data local inpath '/tmp/customers.psv' overwrite into table customers;
+load data local inpath '/tmp/departments.psv' overwrite into table departments;
+load data local inpath '/tmp/products.psv' overwrite into table products;
+#You can remove overwrite while appending data to underlying hive table
+
+########Load data from HDFS to hive table
+#Prepare HDFS stage directory
+#On command prompt (if you login as root)
+hadoop fs -mkdir /user/root/departments
+hadoop fs -put /tmp/departments.psv /user/root/departments
+hadoop fs -ls /user/root/departments
+#Launch hive
+hive
+use retail_ods;
+load data inpath '/user/root/departments/*' overwrite into table departments;
+hadoop fs -ls /user/root/departments
+#You will not find files
+
+
+
+#######################################
+
+
+#Prepare orders on mysql database
+#on mysql
+select * from orders into outfile '/tmp/orders.psv' fields terminated by '|' lines terminated by '\n';
+
+#Create orders_stage under hive database retail_stage
+hive
+use retail_stage;
+
+CREATE TABLE orders_stage (
+order_id int,
+order_date string,
+order_customer_id int,
+order_status string
+)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '|'
+STORED AS TEXTFILE;
+
+load data local inpath '/tmp/orders.psv' overwrite into table orders_stage;
+
+insert overwrite table retail_ods.orders partition (order_month)
+select order_id, order_date, order_customer_id, order_status,
+substr(order_date, 1, 7) order_month from retail_stage.orders_stage;
+
+#Now we have 2 tables retail_stage.order_items and retail_stage.orders
+#We need to join these 2 and populate retail_ods.order_items table which have additional columns
+#order_item_order_date and order_month
+#Also table is partitioned by order_month
+insert overwrite table order_items partition (order_month)
+select oi.order_item_id, oi.order_item_order_id, o.order_date,
+oi.order_item_product_id, oi.order_item_quantity, oi.order_item_subtotal,
+oi.order_item_product_price, substr(o.order_date, 1, 7)
+order_month from retail_stage.order_items oi join retail_stage.orders_stage o
+on oi.order_item_order_id = o.order_id;
+ 
+
+
+############################################
+
+select d.department_name, substr(o.order_date, 1, 7) month, 
+sum(oi.order_item_subtotal) monthly_revenue
+from orders o join order_items oi on oi.order_item_order_id = o.order_id
+join products p on oi.order_item_product_id = p.product_id
+join categories c on p.product_category_id = c.category_id
+join departments d on c.category_department_id = d.department_id
+where o.order_date like '2013%'
+group by d.department_name, substr(o.order_date, 1, 7);
+
+create table retail_denormalized 
+row format delimited fields terminated by '|'
+as
+select d.*, oi.*, o.order_date 
+from orders o join order_items oi on oi.order_item_order_id = o.order_id
+join products p on oi.order_item_product_id = p.product_id
+join categories c on p.product_category_id = c.category_id
+join departments d on c.category_department_id = d.department_id;
+
+select department_name, substr(order_date, 1, 7) order_month, sum(order_item_subtotal) monthly_revenue 
+from retail_denormalized where order_date like '2013%'
+group by department_name, substr(order_date, 1, 7);
+
+
+
+###############################################
+-- Creating partitioned table
+CREATE TABLE orders_partitioned_static (
+  order_id int,
+  order_date string,
+  order_customer_id int,
+  order_status string
+)
+PARTITIONED BY (order_month string)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '|'
+STORED AS TEXTFILE;
+
+-- Adding static partitions
+alter table orders_partitioned_static add partition (order_month='2014-01');
+
+-- Copying data into static partition
+-- Load command works when the files being copied only have data with order_date from 2014-01
+-- Using insert command
+insert into table orders_partitioned_static partition (order_month='2014-01')
+select * from orders where order_date like '2014-01%';
+
+
+CREATE TABLE orders_partitioned_dynamic_nonstrict (
+  order_id int,
+  order_date string,
+  order_customer_id int,
+  order_status string
+)
+PARTITIONED BY (order_month string)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '|'
+STORED AS TEXTFILE;
+
+-- Make sure hive execution engine is pointing to mr (for Cloudera certifications)
+set hive.execution.engine=mr;
+
+-- Validate partition parameters
+hive.exec.dynamic.partition=true
+hive.exec.dynamic.partition.mode=nostrict
+
+-- If hive.exec.dynamic.partition.mode nonstrict, no need to add any partitions
+-- Use insert command to copy data from source table orders
+insert into table orders_partitioned_dynamic_nonstrict partition (order_month)
+select o.*, substr(order_date, 1, 7) order_month from orders o;
+
+CREATE TABLE orders_partitioned_dynamic_strict (
+  order_id int,
+  order_date string,
+  order_customer_id int,
+  order_status string
+)
+PARTITIONED BY (order_year string, order_month string)
+ROW FORMAT DELIMITED FIELDS TERMINATED BY '|'
+STORED AS TEXTFILE;
+
+-- Make sure hive execution engine is pointing to mr (for Cloudera certifications)
+set hive.execution.engine=mr;
+
+-- Validate partition parameters
+hive.exec.dynamic.partition=true
+hive.exec.dynamic.partition.mode=strict
+
+-- If hive.exec.dynamic.partition.mode strict we need to have static partition for parent
+alter table orders_partitioned_dynamic_strict 
+  add partition (order_year='2013', order_month='01')
+      partition (order_year='2014', order_month='01');
+
+-- If hive.exec.dynamic.partition.mode nostrict, no need to add any partitions
+-- Use insert command to copy data from source table orders
+insert into table orders_partitioned_dynamic_strict partition (order_year='2014', order_month)
+select o.*, substr(order_date, 6, 2) order_month from orders o where order_date like '2014%';
+
+insert into table orders_partitioned_dynamic_strict partition (order_year='2013', order_month)
+select o.*, substr(order_date, 6, 2) order_month from orders o where order_date like '2013%';
